@@ -10,14 +10,15 @@ import os
 import pandas as pd
 import streamlit as st
 
-from src import ai_assistant as ai
-from src import analysis as an
-from src import charts as ch
-from src import insights, storage
-from src.config import DATASET_LABELS, SCHEMAS, COLORS
-from src.model import (Filters, apply_filters, build_fact, consistency_report, delta, group_kpis,
+import sfcp_ai as ai
+import sfcp_analysis as an
+import sfcp_charts as ch
+import sfcp_insights as insights
+import sfcp_storage as storage
+from sfcp_config import DATASET_LABELS, SCHEMAS, COLORS
+from sfcp_model import (Filters, apply_filters, build_fact, consistency_report, delta, group_kpis,
                        kpis, months_between, previous_window, timeseries, valid_options)
-from src.validation import ValidationReport, read_table, validate_update
+from sfcp_validation import ValidationReport, read_table, validate_update
 
 st.set_page_config(page_title="SF Crust Pizza · BI", page_icon="🍕", layout="wide",
                    initial_sidebar_state="expanded")
