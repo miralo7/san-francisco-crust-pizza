@@ -8,6 +8,7 @@ Si cualquier paso falla se restaura el estado anterior; los datos previos nunca 
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 from datetime import datetime
@@ -40,7 +41,7 @@ def load_active() -> dict[str, pd.DataFrame] | None:
     return {n: pd.read_parquet(d / f"{n}.parquet") for n in NAMES}
 
 
-def _build_meta(data, report: ValidationReport, filenames: dict, action: str, prev: dict | None) -> dict:
+def _build_meta(data, report: ValidationReport, filenames: dict, action: str, prev: dict | None, seed: str | None = None) -> dict:
     v = data["ventas"]
     now = datetime.now()
     event = {"fecha": now.strftime("%Y-%m-%d %H:%M:%S"), "accion": action,
@@ -48,6 +49,7 @@ def _build_meta(data, report: ValidationReport, filenames: dict, action: str, pr
     history = ([event] + (prev or {}).get("history", []))[:15]
     return {
         "version": now.strftime("%Y%m%d%H%M%S%f"),
+        "seed_hash": seed if seed is not None else (prev or {}).get("seed_hash"),
         "updated_at": event["fecha"],
         "files": filenames,
         "rows": {n: int(len(data[n])) for n in NAMES},
@@ -62,14 +64,14 @@ def _build_meta(data, report: ValidationReport, filenames: dict, action: str, pr
 
 
 def apply_update(data: dict[str, pd.DataFrame], report: ValidationReport,
-                 filenames: dict, action: str = "Actualización") -> dict:
+                 filenames: dict, action: str = "Actualización", seed: str | None = None) -> dict:
     """Reemplaza los datos activos de forma atómica. Exige informe sin errores."""
     if not report.ok:
         raise ValueError("No se puede aplicar una actualización con errores de validación.")
     active, tmp = config.ACTIVE_DIR, config.DATA_DIR / ".tmp_active"
     config.BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     prev = read_meta()
-    meta = _build_meta(data, report, filenames, action, prev)
+    meta = _build_meta(data, report, filenames, action, prev, seed)
     if tmp.exists():
         shutil.rmtree(tmp)
     backup = None
@@ -133,7 +135,41 @@ def bootstrap_from_seed() -> dict:
     clean, rep = validate_bundle(raws["ventas"], raws["clientes"], raws["productos"])
     if clean is None:
         raise RuntimeError("La base semilla no supera la validación: " + "; ".join(i.message for i in rep.errors))
-    return apply_update(clean, rep, {n: config.SEED_FILES[n].name for n in NAMES}, action="Carga inicial (semilla)")
+    return apply_update(clean, rep, {n: config.SEED_FILES[n].name for n in NAMES},
+                        action="Carga desde archivos base", seed=seed_hash())
+
+
+def seed_hash() -> str | None:
+    """Huella de los tres Excel base. Cambia cuando se reemplaza cualquiera de ellos."""
+    try:
+        h = hashlib.sha1()
+        for n in NAMES:
+            h.update(config.SEED_FILES[n].read_bytes())
+        return h.hexdigest()
+    except OSError:
+        return None
+
+
+def sync_with_seed() -> dict:
+    """Mantiene los datos activos alineados con los Excel base del repositorio.
+
+    - Sin datos activos: carga inicial.
+    - Si los Excel base cambiaron desde la última carga: se validan y, si son válidos, reemplazan los datos
+      (la versión anterior queda en copias de seguridad). Si NO son válidos, se conservan los datos actuales.
+    - Si no cambiaron: no hace nada (respeta lo cargado desde la interfaz).
+    Devuelve {"status": inicial | actualizado | sin_cambios | rechazado, "errors": [...]}.
+    """
+    meta, h = read_meta(), seed_hash()
+    if meta is None or load_active() is None:
+        bootstrap_from_seed()
+        return {"status": "inicial", "errors": []}
+    if h is None or meta.get("seed_hash") == h:
+        return {"status": "sin_cambios", "errors": []}
+    try:
+        bootstrap_from_seed()
+        return {"status": "actualizado", "errors": []}
+    except Exception as exc:
+        return {"status": "rechazado", "errors": [str(exc)]}
 
 
 def ensure_data() -> dict[str, pd.DataFrame]:

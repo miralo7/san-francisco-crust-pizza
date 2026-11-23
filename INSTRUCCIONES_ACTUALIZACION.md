@@ -26,6 +26,9 @@ Los nombres se reconocen sin distinguir mayúsculas ni acentos y con algunos sin
 - Cada sucursal debe pertenecer a una sola ciudad.
 - Si cambian los nombres de columnas, el mensaje de error indica cuál falta y sugiere la columna parecida.
 
-## Persistencia en Streamlit Community Cloud
-Los datos cargados desde la interfaz duran mientras la app siga activa. Si se reinicia o redespliega, vuelve a `data/seed/`.
-Para hacerlo permanente: reemplace en GitHub los tres archivos de `data/seed/` (mismo nombre, formato `.xlsx`) y haga *commit*.
+## Dos formas de actualizar (y cuál elegir)
+1. **Desde la aplicación** (sección «Datos y actualización»): inmediato, con validación y vista previa. Dura mientras la app siga encendida; si
+   se reinicia o se redespliega, vuelve a los Excel base del repositorio.
+2. **Reemplazando los Excel base en GitHub** (permanente): en el repositorio use **Add file → Upload files** y suba los archivos con el **mismo nombre**
+   (`San_Francisco_Crust_Pizza_Ventas.xlsx`, etc.). La app detecta sola que cambiaron, los valida y recalcula todos los indicadores y gráficos.
+   Si el archivo nuevo tiene errores, **se rechaza y se conservan los datos anteriores**; la sección «Datos y actualización» muestra el motivo.

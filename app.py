@@ -25,8 +25,6 @@ st.set_page_config(page_title="SF Crust Pizza · BI", page_icon="🍕", layout="
 
 st.markdown(f"""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap');
-html, body, [class*="st-"] {{ font-family: 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif; }}
 .block-container {{ padding-top: 1.6rem; padding-bottom: 3rem; max-width: 1400px; }}
 h1 {{ font-size: 1.7rem !important; font-weight: 600 !important; margin-bottom: .1rem; }}
 h2, h3 {{ font-weight: 600 !important; }}
@@ -51,13 +49,25 @@ def show(fig, key=None):
 # ----------------------------------------------------------------------------
 # Carga de datos (cacheada por versión del conjunto activo)
 # ----------------------------------------------------------------------------
-def current_meta() -> dict:
-    meta = storage.read_meta()
-    if meta is None or storage.load_active() is None:
-        with st.spinner("Preparando la base de datos inicial (solo la primera vez)…"):
-            storage.bootstrap_from_seed()
-        meta = storage.read_meta()
-    return meta
+@st.cache_resource
+def _rechazos() -> dict:
+    """Recuerda los Excel base inválidos (por huella) para no reintentar la lectura en cada interacción."""
+    return {}
+
+
+def sync_seed() -> dict:
+    """Alinea los datos activos con los Excel base. Barato si no cambiaron; si cambian, valida y recarga."""
+    h, rech = storage.seed_hash(), _rechazos()
+    if h in rech:
+        return rech[h]
+    res = storage.sync_with_seed()
+    if res["status"] == "rechazado":
+        rech[h] = res
+    return res
+
+
+SYNC = sync_seed()
+meta = storage.read_meta()
 
 
 @st.cache_data(show_spinner="Cargando y modelando datos…")
@@ -66,7 +76,6 @@ def get_bundle(version: str):
     return data, build_fact(data)
 
 
-meta = current_meta()
 data, fact = get_bundle(meta["version"])
 
 # ----------------------------------------------------------------------------
@@ -115,6 +124,7 @@ with st.sidebar:
     st.multiselect("Producto", opts["productos"], key="f_producto", placeholder="Todos")
     st.button("Restablecer filtros", on_click=reset_filters, width="stretch")
     st.caption(f"Datos actualizados: {meta['updated_at']}")
+    st.caption("¿Nuevas bases de datos? Sección «Datos y actualización».")
 
 dates = st.session_state.f_dates
 if not isinstance(dates, (tuple, list)) or len(dates) != 2:
@@ -454,6 +464,13 @@ def page_datos():
     st.title("Datos y actualización")
     st.markdown('<p class="note">Cargue nuevas bases sin tocar el código. Toda carga se valida primero; si hay errores, '
                 'los datos actuales se conservan intactos.</p>', unsafe_allow_html=True)
+    if SYNC["status"] == "rechazado":
+        st.error("Los archivos base del repositorio cambiaron pero NO superaron la validación; se conservan los datos anteriores. "
+                 + " ".join(SYNC["errors"]))
+    st.info("**Dos formas de actualizar:** (1) subir los archivos aquí abajo: inmediato, pero dura mientras la app siga encendida; "
+            "(2) reemplazar los Excel base en GitHub (mismo nombre): la app los detecta sola, los valida y recalcula todo, y es permanente.")
+    ult = meta["history"][0]
+    st.caption(f"Última acción sobre los datos: {ult['accion']} · {ult['fecha']}")
     kind = "err" if meta["n_errors"] else ("warn" if meta["n_warnings"] else "ok")
     c = st.columns(4)
     c[0].metric("Última actualización", meta["updated_at"], border=True)
